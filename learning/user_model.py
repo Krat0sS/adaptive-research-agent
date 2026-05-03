@@ -65,7 +65,13 @@ class UserModel:
         self.save()
 
     def _update_from_feedback(self, feedback: dict, strategy: dict):
-        """根据用户反馈更新偏好"""
+        """
+        根据用户反馈更新偏好。
+        
+        改进点：
+        1. 增加 rating <= 2 的对称惩罚，防止权重只增不减
+        2. 每次更新时对 venue_weights 施加微小衰减，防止长期膨胀
+        """
         prefs = self.data["preferences"]
 
         # 如果用户给了评分
@@ -75,13 +81,28 @@ class UserModel:
             if feedback.get("modifications"):
                 prefs["depth_vs_breadth"] = max(0.1, prefs["depth_vs_breadth"] - 0.05)
 
-            # 高评分 = 当前策略有效，强化偏好
-            if rating >= 4:
-                venue = strategy.get("venue")
-                if venue:
-                    weights = prefs.get("venue_weights", {})
+            venue = strategy.get("venue")
+            if venue:
+                weights = prefs.get("venue_weights", {})
+
+                # 全局微衰减：每次更新时所有权重乘以 0.99，防止无限膨胀
+                for k in weights:
+                    weights[k] *= 0.99
+
+                if rating >= 4:
+                    # 高评分 = 当前策略有效，强化偏好
                     weights[venue] = weights.get(venue, 1.0) + 0.1
-                    prefs["venue_weights"] = weights
+                elif rating <= 2:
+                    # 低评分 = 当前策略不佳，惩罚对应 venue
+                    weights[venue] = max(0.1, weights.get(venue, 1.0) - 0.1)
+
+                prefs["venue_weights"] = weights
+
+            # 更新 recency_bias：高评分倾向于保持当前偏好，低评分倾向于探索
+            if rating >= 4:
+                prefs["recency_bias"] = min(1.0, prefs.get("recency_bias", 0.7) + 0.02)
+            elif rating <= 2:
+                prefs["recency_bias"] = max(0.1, prefs.get("recency_bias", 0.7) - 0.05)
 
         # 如果用户反馈论文太少/太多
         if feedback.get("too_few_papers"):
