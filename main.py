@@ -2,6 +2,7 @@
 """自适应研究助手 Agent — 命令行入口"""
 import sys
 import os
+import time
 
 # 确保项目根目录在 path 中
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -41,6 +42,7 @@ def main():
             continue
 
         # 运行 Agent
+        task_start_time = time.time()
         try:
             result = agent.run(query, verbose=True)
         except KeyboardInterrupt:
@@ -53,6 +55,7 @@ def main():
 
         # 收集反馈
         console.print("\n" + "─" * 50)
+        task_end_time = time.time()
         try:
             give_feedback = Prompt.ask(
                 "[bold yellow]💬 给出反馈？[/bold yellow]",
@@ -65,12 +68,22 @@ def main():
                 comments = Prompt.ask("[yellow]备注[/yellow]（可选，直接回车跳过）", default="")
                 fb_result = agent.provide_feedback(rating, comments)
                 console.print(f"[green]✓ 反馈已记录[/green]")
+            else:
+                # 隐式反馈 fallback：基于用户行为推断满意度
+                time_spent = task_end_time - task_start_time
+                implicit = agent.provide_implicit_feedback({
+                    "time_spent": time_spent,
+                    "copied_text": False,  # CLI 环境难以检测，预留接口
+                    "asked_followup": False,
+                    "regenerated": False
+                })
+                console.print(f"[dim]📊 隐式反馈已记录（停留 {time_spent:.0f}s → reward {implicit['reward']:.2f}）[/dim]")
 
-                # 更新赌博机
-                if result.get("search_stats", {}).get("bandit_stats"):
-                    best = agent.bandit.get_best_arm()
-                    if best:
-                        console.print(f"[dim]📊 最优搜索策略: {best}[/dim]")
+            # 更新赌博机
+            if result.get("search_stats", {}).get("bandit_stats"):
+                best = agent.bandit.get_best_arm()
+                if best:
+                    console.print(f"[dim]📊 最优搜索策略: {best}[/dim]")
         except (KeyboardInterrupt, EOFError):
             pass
 
