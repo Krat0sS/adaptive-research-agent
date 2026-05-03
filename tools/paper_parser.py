@@ -1,10 +1,17 @@
-"""论文解析工具 — 从论文元数据中提取结构化信息"""
+"""论文解析工具 — 从论文元数据中提取结构化信息
+
+注意：extract_concepts 功能已整合到 knowledge/extractor._extract_batch，
+此处保留接口兼容性，内部委托给 extractor。
+"""
 from tools import llm_client
 
 
 def extract_concepts(papers: list[dict]) -> dict:
     """
     从一批论文中提取核心概念、方法和发现。
+    
+    ⚠️ 已废弃：此函数与 knowledge/extractor._extract_batch 功能重复。
+    保留仅为向后兼容。新代码应直接使用 extractor._extract_batch()。
     
     Returns:
         {
@@ -13,29 +20,12 @@ def extract_concepts(papers: list[dict]) -> dict:
             "findings": [{"paper": "标题", "finding": "发现内容"}, ...]
         }
     """
-    # 构建论文摘要文本
-    abstracts_text = ""
-    for i, p in enumerate(papers[:15]):  # 最多处理 15 篇，避免 token 爆炸
-        abstract = p.get("abstract", "无摘要")
-        abstracts_text += f"\n--- 论文 {i+1}: {p['title']} ({p.get('year', '?')}) ---\n{abstract}\n"
+    # 延迟导入避免循环依赖
+    from knowledge import extractor as _extractor
+    from knowledge.graph import KnowledgeGraph
 
-    system_prompt = """你是一位学术研究分析专家。请从给定的论文摘要中提取：
-
-1. **核心概念**（concepts）：该领域最重要的 5-10 个技术概念/术语
-2. **核心方法**（methods）：论文中使用的主要技术方法/框架/算法
-3. **关键发现**（findings）：每篇论文最核心的结论或贡献（保持原文精度，不要泛化）
-
-返回 JSON 格式：
-{
-    "concepts": ["概念1", "概念2", ...],
-    "methods": ["方法1", "方法2", ...],
-    "findings": [
-        {"paper": "论文标题", "finding": "具体发现"},
-        ...
-    ]
-}"""
-
-    return llm_client.chat_json(system_prompt, f"以下是待分析的论文摘要：\n{abstracts_text}")
+    # 委托给 extractor._extract_batch，用空 query 兜底
+    return _extractor._extract_batch(papers, query="学术研究")
 
 
 def assess_paper_relevance(paper: dict, query: str) -> dict:
